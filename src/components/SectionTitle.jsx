@@ -1,0 +1,18 @@
+import React from "react";
+
+export default function SectionTitle({ title, subtitle, icon: Icon, action }) {
+  return (
+    <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="flex items-center gap-3">
+        <div className="rounded-2xl bg-slate-950 p-2 text-white">
+          <Icon className="h-4 w-4" />
+        </div>
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">{title}</h2>
+          {subtitle ? <p className="text-sm text-slate-500">{subtitle}</p> : null}
+        </div>
+      </div>
+      {action}
+    </div>
+  );
+}

@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html {
+  direction: rtl;
+}
+
+body {
+  margin: 0;
+  font-family: Tahoma, Arial, sans-serif;
+  background: #f1f5f9;
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  #print-receipt,
+  #print-receipt * {
+    visibility: visible !important;
+  }
+
+  #print-receipt {
+    display: block !important;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    background: white;
+  }
+
+  @page {
+    size: auto;
+    margin: 8mm;
+  }
+}
