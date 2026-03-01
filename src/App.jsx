@@ -30,16 +30,21 @@ function getAllowedPages(role) {
         "suppliers",
         "purchaseInvoices",
         "walletTransfers",
+        "charging",
         "settings",
       ];
+
     case "cashier":
-      return ["pos", "sales"];
+      return ["pos", "sales", "charging"];
+
     case "storekeeper":
       return ["dashboard", "products", "suppliers", "purchaseInvoices"];
+
     case "accountant":
-      return ["dashboard", "sales", "customers", "walletTransfers"];
+      return ["dashboard", "sales", "customers", "walletTransfers", "charging"];
+
     default:
-      return ["pos"];
+      return ["pos", "charging"];
   }
 }
 
