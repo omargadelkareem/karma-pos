@@ -12,6 +12,7 @@ import {
   Truck,
   FilePlus2,
   Wallet,
+  SmartphoneCharging,
 } from "lucide-react";
 
 const allNavItems = [
@@ -23,6 +24,7 @@ const allNavItems = [
   { key: "suppliers", label: "الموردين", icon: Truck },
   { key: "purchaseInvoices", label: "فواتير الشراء", icon: FilePlus2 },
   { key: "walletTransfers", label: "تحويلات المحافظ", icon: Wallet },
+  { key: "charging", label: "الشحن والخدمات", icon: SmartphoneCharging },
   { key: "settings", label: "الإعدادات", icon: Settings },
 ];
 
@@ -32,16 +34,16 @@ function getAllowedPages(role) {
       return allNavItems.map((item) => item.key);
 
     case "cashier":
-      return ["pos", "sales"];
+      return ["pos", "sales", "charging"];
 
     case "storekeeper":
       return ["dashboard", "products", "suppliers", "purchaseInvoices"];
 
     case "accountant":
-      return ["dashboard", "sales", "customers", "walletTransfers"];
+      return ["dashboard", "sales", "customers", "walletTransfers", "charging"];
 
     default:
-      return ["pos"];
+      return ["pos", "charging"];
   }
 }
 
@@ -56,7 +58,7 @@ export default function Sidebar({ active, onChange, userLabel, userRole, onLogou
           <Store className="h-6 w-6" />
         </div>
         <div>
-          <h1 className="text-xl font-black"> كارما ماركت</h1>
+          <h1 className="text-xl font-black">كارما ماركت</h1>
           <p className="text-xs text-slate-300">نظام إدارة المخزن والبيع</p>
         </div>
       </div>

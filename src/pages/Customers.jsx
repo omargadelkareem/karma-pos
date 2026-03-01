@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Printer,
   Receipt,
+  BadgePlus,
 } from "lucide-react";
 import { PosContext } from "../context/PosContext";
 import { currency } from "../utils/format";
@@ -86,6 +87,20 @@ export default function Customers() {
             className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none"
           />
 
+          <input
+            type="number"
+            value={customerForm.openingBalance || ""}
+            onChange={(e) =>
+              setCustomerForm((s) => ({ ...s, openingBalance: e.target.value }))
+            }
+            placeholder="مديونية سابقة على العميل"
+            className="w-full rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 outline-none"
+          />
+
+          <div className="rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            لو العميل عليه مبلغ قديم من قبل تشغيل السيستم، اكتبه هنا مرة واحدة.
+          </div>
+
           <textarea
             rows={3}
             value={customerForm.notes}
@@ -132,6 +147,13 @@ export default function Customers() {
                     <p className="text-sm text-slate-500">{customer.phone || "بدون هاتف"}</p>
 
                     <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                      {Number(customer.openingBalance || 0) > 0 ? (
+                        <span className="rounded-xl bg-amber-100 px-3 py-1 font-bold text-amber-800">
+                          مديونية سابقة:{" "}
+                          {currency(customer.openingBalance || 0, settings.currencyCode)}
+                        </span>
+                      ) : null}
+
                       <span className="rounded-xl bg-red-50 px-3 py-1 font-bold text-red-700">
                         عليه: {currency(balance > 0 ? balance : 0, settings.currencyCode)}
                       </span>
@@ -210,6 +232,8 @@ export default function Customers() {
                                     <div className="flex items-center gap-2">
                                       {entry.type === "sale_invoice" ? (
                                         <Receipt className="h-4 w-4 text-slate-500" />
+                                      ) : entry.type === "opening_balance" ? (
+                                        <BadgePlus className="h-4 w-4 text-amber-600" />
                                       ) : (
                                         <Wallet className="h-4 w-4 text-emerald-600" />
                                       )}
@@ -280,6 +304,18 @@ export default function Customers() {
                                             </div>
                                           </div>
                                         ) : null}
+                                      </div>
+                                    ) : entry.type === "opening_balance" ? (
+                                      <div className="mt-3 space-y-2 text-sm">
+                                        <p>
+                                          المديونية السابقة:{" "}
+                                          <span className="font-bold text-amber-700">
+                                            {currency(entry.amount || entry.debit || 0, settings.currencyCode)}
+                                          </span>
+                                        </p>
+                                        <p className="text-slate-600">
+                                          هذا المبلغ تم إدخاله كرصيد قديم قبل تشغيل السيستم.
+                                        </p>
                                       </div>
                                     ) : (
                                       <div className="mt-3 space-y-2 text-sm">

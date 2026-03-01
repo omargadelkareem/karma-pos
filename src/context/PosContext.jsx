@@ -21,11 +21,23 @@ const initialProductForm = {
   minPackageQty: "",
 };
 
+const initialChargingForm = {
+  serviceType: "mobile_recharge",
+  company: "vodafone",
+  targetNumber: "",
+  amount: "",
+  fee: "",
+  referenceNumber: "",
+  notes: "",
+  status: "success",
+};
+
 const initialCustomerForm = {
   name: "",
   phone: "",
   address: "",
   notes: "",
+  openingBalance: "",
 };
 
 const initialSupplierForm = {
@@ -141,9 +153,104 @@ function applySaleReturnToStock(product, returnItems) {
     itemQty,
   };
 }
+function getServiceTypeLabel(type) {
+  switch (type) {
+    case "mobile_recharge":
+      return "شحن رصيد";
+    case "scratch_card":
+      return "كارت شحن";
+    case "landline":
+      return "فاتورة أرضي";
+    case "internet":
+      return "فاتورة إنترنت";
+    case "electricity":
+      return "كهرباء";
+    case "water":
+      return "مياه";
+    case "gas":
+      return "غاز";
+    default:
+      return type || "خدمة";
+  }
+}
 
+function getCompanyLabel(company) {
+  switch (company) {
+    case "vodafone":
+      return "فودافون";
+    case "orange":
+      return "أورنج";
+    case "etisalat":
+      return "اتصالات";
+    case "we":
+      return "WE";
+    default:
+      return company || "شركة";
+  }
+}
 export function PosProvider({ children }) {
   const { user } = useContext(AuthContext);
+
+  const saveChargingOperation = async () => {
+  if (!chargingForm.targetNumber.trim()) {
+    window.alert("من فضلك أدخل الرقم");
+    return;
+  }
+
+  if (toNumber(chargingForm.amount) <= 0) {
+    window.alert("من فضلك أدخل مبلغ صحيح");
+    return;
+  }
+
+  setSavingCharging(true);
+
+  try {
+    const createdAt = Date.now();
+    const operationRef = push(ref(db, "chargingOperations"));
+
+    const payload = {
+      serviceType: chargingForm.serviceType,
+      company: chargingForm.company,
+      targetNumber: chargingForm.targetNumber.trim(),
+      amount: toNumber(chargingForm.amount),
+      fee: toNumber(chargingForm.fee),
+      referenceNumber: chargingForm.referenceNumber.trim() || `CH-${createdAt}`,
+      notes: chargingForm.notes.trim(),
+      status: chargingForm.status || "success",
+      createdAt,
+      cashierId: user?.id || "",
+      cashierName: user?.name || "",
+    };
+
+    await set(operationRef, payload);
+
+    setReceiptData({
+      type: "charging",
+      createdAt: payload.createdAt,
+      receiptNumber: payload.referenceNumber,
+      customerName: payload.targetNumber,
+      total: payload.amount,
+      paidAmount: payload.amount,
+      remainingAmount: 0,
+      items: [
+        {
+          productName: `${getServiceTypeLabel(payload.serviceType)} - ${getCompanyLabel(payload.company)}`,
+          unitName: "خدمة",
+          unitPrice: payload.amount,
+          qty: 1,
+          total: payload.amount,
+        },
+      ],
+    });
+
+    setChargingForm(initialChargingForm);
+    window.alert("تم حفظ عملية الشحن بنجاح");
+  } catch (error) {
+    window.alert(error?.message || "حدث خطأ أثناء حفظ العملية");
+  } finally {
+    setSavingCharging(false);
+  }
+};
 
   const [settings, setSettings] = useState({
     storeName: "كرمة ماركت",
@@ -152,6 +259,9 @@ export function PosProvider({ children }) {
 
   const [products, setProducts] = useState([]);
   const [invoices, setInvoices] = useState([]);
+  const [chargingOperations, setChargingOperations] = useState([]);
+const [chargingForm, setChargingForm] = useState(initialChargingForm);
+const [savingCharging, setSavingCharging] = useState(false);
   const [salesReturns, setSalesReturns] = useState([]);
   const [purchaseInvoices, setPurchaseInvoices] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -161,6 +271,7 @@ export function PosProvider({ children }) {
   const [walletTransfers, setWalletTransfers] = useState([]);
 
   const [productForm, setProductForm] = useState(initialProductForm);
+  const [editingProductId, setEditingProductId] = useState(null);
   const [customerForm, setCustomerForm] = useState(initialCustomerForm);
   const [supplierForm, setSupplierForm] = useState(initialSupplierForm);
   const [walletTransferForm, setWalletTransferForm] = useState(initialWalletTransferForm);
@@ -197,6 +308,14 @@ export function PosProvider({ children }) {
         .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ar"));
       setProducts(parsed);
     });
+
+    const unsubChargingOperations = onValue(ref(db, "chargingOperations"), (snapshot) => {
+  const data = snapshot.val() || {};
+  const parsed = Object.entries(data)
+    .map(([id, value]) => ({ id, ...value }))
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  setChargingOperations(parsed);
+});
 
     const unsubInvoices = onValue(ref(db, "invoices"), (snapshot) => {
       const data = snapshot.val() || {};
@@ -279,6 +398,9 @@ export function PosProvider({ children }) {
       unsubSuppliers();
       unsubSupplierPayments();
       unsubWalletTransfers();
+      unsubChargingOperations();
+      
+      
       unsubSettings();
     };
   }, [user]);
@@ -358,26 +480,26 @@ export function PosProvider({ children }) {
   }, [todaySales, todaySalesReturns]);
 
   const customerBalances = useMemo(() => {
-    const map = {};
-    customers.forEach((c) => {
-      map[c.id] = 0;
-    });
+  const map = {};
 
-    invoices.forEach((inv) => {
-      if (inv.customerId) {
-        map[inv.customerId] = (map[inv.customerId] || 0) + toNumber(inv.remainingAmount);
-      }
-    });
+  customers.forEach((c) => {
+    map[c.id] = Math.max(0, toNumber(c.openingBalance));
+  });
 
-    customerPayments.forEach((pay) => {
-      if (pay.customerId) {
-        map[pay.customerId] = (map[pay.customerId] || 0) - toNumber(pay.amount);
-      }
-    });
+  invoices.forEach((inv) => {
+    if (inv.customerId) {
+      map[inv.customerId] = (map[inv.customerId] || 0) + toNumber(inv.remainingAmount);
+    }
+  });
 
-    return map;
-  }, [customers, invoices, customerPayments]);
+  customerPayments.forEach((pay) => {
+    if (pay.customerId) {
+      map[pay.customerId] = (map[pay.customerId] || 0) - toNumber(pay.amount);
+    }
+  });
 
+  return map;
+}, [customers, invoices, customerPayments]);
   const supplierBalances = useMemo(() => {
     const map = {};
     suppliers.forEach((s) => {
@@ -499,54 +621,85 @@ export function PosProvider({ children }) {
   };
 
   const saveProduct = async () => {
-    if (!productForm.name.trim()) {
-      window.alert("من فضلك أدخل اسم المنتج");
-      return;
-    }
+  if (!productForm.name.trim()) {
+    window.alert("من فضلك أدخل اسم المنتج");
+    return;
+  }
 
-    if (!productForm.packageName.trim()) {
-      window.alert("من فضلك أدخل اسم العبوة");
-      return;
-    }
+  if (!productForm.packageName.trim()) {
+    window.alert("من فضلك أدخل اسم العبوة");
+    return;
+  }
 
-    if (toNumber(productForm.itemsPerPackage) <= 0) {
-      window.alert("من فضلك أدخل عدد القطع داخل العبوة");
-      return;
-    }
+  if (toNumber(productForm.itemsPerPackage) <= 0) {
+    window.alert("من فضلك أدخل عدد القطع داخل العبوة");
+    return;
+  }
 
-    if (toNumber(productForm.purchasePackagePrice) <= 0) {
-      window.alert("من فضلك أدخل سعر شراء العبوة");
-      return;
-    }
+  if (toNumber(productForm.purchasePackagePrice) <= 0) {
+    window.alert("من فضلك أدخل سعر شراء العبوة");
+    return;
+  }
 
-    if (toNumber(productForm.saleItemPrice) <= 0) {
-      window.alert("من فضلك أدخل سعر بيع القطعة");
-      return;
-    }
+  if (toNumber(productForm.saleItemPrice) <= 0) {
+    window.alert("من فضلك أدخل سعر بيع القطعة");
+    return;
+  }
 
-    if (toNumber(productForm.salePackagePrice) <= 0) {
-      window.alert("من فضلك أدخل سعر بيع العبوة");
-      return;
-    }
+  if (toNumber(productForm.salePackagePrice) <= 0) {
+    window.alert("من فضلك أدخل سعر بيع العبوة");
+    return;
+  }
 
-    setSavingProduct(true);
+  const normalizedBarcode = String(productForm.barcode || "").trim();
 
-    try {
-      const payload = normalizeProduct({
-        name: productForm.name.trim(),
-        barcode: productForm.barcode.trim(),
-        category: productForm.category.trim(),
-        packageName: productForm.packageName.trim(),
-        itemsPerPackage: Math.max(1, toNumber(productForm.itemsPerPackage, 1)),
-        purchasePackagePrice: Math.max(0, toNumber(productForm.purchasePackagePrice)),
-        saleItemPrice: Math.max(0, toNumber(productForm.saleItemPrice)),
-        salePackagePrice: Math.max(0, toNumber(productForm.salePackagePrice)),
-        packageQty: Math.max(0, toNumber(productForm.packageQty)),
-        itemQty: Math.max(0, toNumber(productForm.itemQty)),
-        minPackageQty: Math.max(0, toNumber(productForm.minPackageQty)),
-        createdAt: Date.now(),
+  const duplicateBarcode = products.find(
+    (item) =>
+      item.id !== editingProductId &&
+      String(item.barcode || "").trim() &&
+      String(item.barcode || "").trim() === normalizedBarcode
+  );
+
+  if (duplicateBarcode) {
+    window.alert(`هذا الباركود مستخدم بالفعل للمنتج: ${duplicateBarcode.name}`);
+    return;
+  }
+
+  setSavingProduct(true);
+
+  try {
+    const payload = normalizeProduct({
+      name: productForm.name.trim(),
+      barcode: normalizedBarcode,
+      category: productForm.category.trim(),
+      packageName: productForm.packageName.trim(),
+      itemsPerPackage: Math.max(1, toNumber(productForm.itemsPerPackage, 1)),
+      purchasePackagePrice: Math.max(0, toNumber(productForm.purchasePackagePrice)),
+      saleItemPrice: Math.max(0, toNumber(productForm.saleItemPrice)),
+      salePackagePrice: Math.max(0, toNumber(productForm.salePackagePrice)),
+      packageQty: Math.max(0, toNumber(productForm.packageQty)),
+      itemQty: Math.max(0, toNumber(productForm.itemQty)),
+      minPackageQty: Math.max(0, toNumber(productForm.minPackageQty)),
+      createdAt: Date.now(),
+    });
+
+    if (editingProductId) {
+      await update(ref(db, `products/${editingProductId}`), {
+        name: payload.name,
+        barcode: payload.barcode,
+        category: payload.category,
+        packageName: payload.packageName,
+        itemsPerPackage: payload.itemsPerPackage,
+        purchasePackagePrice: payload.purchasePackagePrice,
+        saleItemPrice: payload.saleItemPrice,
+        salePackagePrice: payload.salePackagePrice,
+        packageQty: payload.packageQty,
+        itemQty: payload.itemQty,
+        minPackageQty: payload.minPackageQty,
       });
 
+      window.alert("تم تعديل المنتج بنجاح");
+    } else {
       const newRef = push(ref(db, "products"));
       await set(newRef, {
         name: payload.name,
@@ -563,46 +716,79 @@ export function PosProvider({ children }) {
         createdAt: payload.createdAt,
       });
 
-      setProductForm(initialProductForm);
-    } catch (error) {
-      window.alert(error?.message || "حدث خطأ أثناء حفظ المنتج");
-    } finally {
-      setSavingProduct(false);
+      window.alert("تم حفظ المنتج بنجاح");
     }
-  };
+
+    setProductForm(initialProductForm);
+    setEditingProductId(null);
+  } catch (error) {
+    window.alert(error?.message || "حدث خطأ أثناء حفظ المنتج");
+  } finally {
+    setSavingProduct(false);
+  }
+};
+
+const startEditProduct = (product) => {
+  if (!product) return;
+
+  setEditingProductId(product.id);
+  setProductForm({
+    name: product.name || "",
+    barcode: product.barcode || "",
+    category: product.category || "",
+    packageName: product.packageName || "",
+    itemsPerPackage: String(product.itemsPerPackage ?? ""),
+    purchasePackagePrice: String(product.purchasePackagePrice ?? ""),
+    saleItemPrice: String(product.saleItemPrice ?? ""),
+    salePackagePrice: String(product.salePackagePrice ?? ""),
+    packageQty: String(product.packageQty ?? ""),
+    itemQty: String(product.itemQty ?? ""),
+    minPackageQty: String(product.minPackageQty ?? ""),
+  });
+};
+
+const cancelEditProduct = () => {
+  setEditingProductId(null);
+  setProductForm(initialProductForm);
+};
 
   const deleteProduct = async (id) => {
-    const ok = window.confirm("هل تريد حذف هذا المنتج؟");
-    if (!ok) return;
+  const ok = window.confirm("هل تريد حذف هذا المنتج؟");
+  if (!ok) return;
 
-    await remove(ref(db, `products/${id}`));
-    setCart((prev) => prev.filter((item) => item.productId !== id));
-  };
+  await remove(ref(db, `products/${id}`));
+  setCart((prev) => prev.filter((item) => item.productId !== id));
+
+  if (editingProductId === id) {
+    setEditingProductId(null);
+    setProductForm(initialProductForm);
+  }
+};
 
   const saveCustomer = async () => {
-    if (!customerForm.name.trim()) {
-      window.alert("من فضلك أدخل اسم العميل");
-      return;
-    }
+  if (!customerForm.name.trim()) {
+    window.alert("من فضلك أدخل اسم العميل");
+    return;
+  }
 
-    setSavingCustomer(true);
-    try {
-      const newRef = push(ref(db, "customers"));
-      await set(newRef, {
-        name: customerForm.name.trim(),
-        phone: customerForm.phone.trim(),
-        address: customerForm.address.trim(),
-        notes: customerForm.notes.trim(),
-        createdAt: Date.now(),
-      });
-      setCustomerForm(initialCustomerForm);
-    } catch (error) {
-      window.alert(error?.message || "حدث خطأ أثناء حفظ العميل");
-    } finally {
-      setSavingCustomer(false);
-    }
-  };
-
+  setSavingCustomer(true);
+  try {
+    const newRef = push(ref(db, "customers"));
+    await set(newRef, {
+      name: customerForm.name.trim(),
+      phone: customerForm.phone.trim(),
+      address: customerForm.address.trim(),
+      notes: customerForm.notes.trim(),
+      openingBalance: Math.max(0, toNumber(customerForm.openingBalance)),
+      createdAt: Date.now(),
+    });
+    setCustomerForm(initialCustomerForm);
+  } catch (error) {
+    window.alert(error?.message || "حدث خطأ أثناء حفظ العميل");
+  } finally {
+    setSavingCustomer(false);
+  }
+};
   const saveSupplier = async () => {
     if (!supplierForm.name.trim()) {
       window.alert("من فضلك أدخل اسم المورد");
@@ -1036,6 +1222,24 @@ export function PosProvider({ children }) {
   };
 
   const getCustomerLedger = (customerId) => {
+  const customer = customers.find((item) => item.id === customerId);
+
+  const openingBalanceEntries =
+    customer && toNumber(customer.openingBalance) > 0
+      ? [
+          {
+            id: `opening-${customerId}`,
+            type: "opening_balance",
+            label: "مديونية سابقة قبل تشغيل السيستم",
+            debit: toNumber(customer.openingBalance), // عليه
+            credit: 0, // له
+            amount: toNumber(customer.openingBalance),
+            notes: "رصيد افتتاحي للعميل",
+            createdAt: customer.createdAt || Date.now(),
+          },
+        ]
+      : [];
+
   const salesEntries = invoices
     .filter((item) => item.customerId === customerId)
     .map((item) => ({
@@ -1067,7 +1271,9 @@ export function PosProvider({ children }) {
       receiptNumber: item.receiptNumber || "",
     }));
 
-  return [...salesEntries, ...paymentEntries].sort((a, b) => a.createdAt - b.createdAt);
+  return [...openingBalanceEntries, ...salesEntries, ...paymentEntries].sort(
+    (a, b) => (a.createdAt || 0) - (b.createdAt || 0)
+  );
 };
 
   const getSupplierLedger = (supplierId) => {
@@ -1141,6 +1347,11 @@ export function PosProvider({ children }) {
     customerForm,
     setCustomerForm,
     supplierForm,
+    chargingOperations,
+chargingForm,
+setChargingForm,
+savingCharging,
+saveChargingOperation,
     setSupplierForm,
     walletTransferForm,
     setWalletTransferForm,
@@ -1152,7 +1363,9 @@ export function PosProvider({ children }) {
     cartTotal,
     receiptData,
     invoiceResetTick,
-
+editingProductId,
+startEditProduct,
+cancelEditProduct,
     selectedCustomerId,
     setSelectedCustomerId,
     selectedCustomer,

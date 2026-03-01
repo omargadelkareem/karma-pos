@@ -16,6 +16,7 @@ import WalletTransfers from "./pages/WalletTransfers";
 
 import Sidebar from "./components/Sidebar";
 import PrintableReceipt from "./components/PrintableReceipt";
+import Charging from "./pages/Charging";
 
 function getAllowedPages(role) {
   switch (role) {
@@ -97,6 +98,7 @@ export default function App() {
             {activePage === "sales" && <Sales />}
             {activePage === "customers" && <Customers />}
             {activePage === "suppliers" && <Suppliers />}
+              {activePage === "charging" && <Charging />}
             {activePage === "purchaseInvoices" && <PurchaseInvoices />}
             {activePage === "walletTransfers" && <WalletTransfers />}
             {activePage === "settings" && <Settings />}

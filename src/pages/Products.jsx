@@ -8,6 +8,8 @@ import {
   ChevronDown,
   Search,
   ScanBarcode,
+  Pencil,
+  X,
 } from "lucide-react";
 import { PosContext } from "../context/PosContext";
 import { currency } from "../utils/format";
@@ -23,6 +25,9 @@ export default function Products() {
     savingProduct,
     saveProduct,
     deleteProduct,
+    editingProductId,
+    startEditProduct,
+    cancelEditProduct,
   } = useContext(PosContext);
 
   const [expandedId, setExpandedId] = useState(null);
@@ -42,6 +47,12 @@ export default function Products() {
     nameInputRef.current?.focus();
   }, []);
 
+  useEffect(() => {
+    if (editingProductId) {
+      nameInputRef.current?.focus();
+    }
+  }, [editingProductId]);
+
   const normalizedBarcode = useMemo(
     () => String(productForm.barcode || "").trim(),
     [productForm.barcode]
@@ -53,11 +64,12 @@ export default function Products() {
     return (
       products.find(
         (item) =>
+          item.id !== editingProductId &&
           String(item.barcode || "").trim() &&
           String(item.barcode || "").trim() === normalizedBarcode
       ) || null
     );
-  }, [products, normalizedBarcode]);
+  }, [products, normalizedBarcode, editingProductId]);
 
   useEffect(() => {
     if (!normalizedBarcode) {
@@ -114,14 +126,37 @@ export default function Products() {
     }, 100);
   };
 
+  const handleStartEdit = (product) => {
+    startEditProduct(product);
+    setExpandedId(product.id);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleCancelEdit = () => {
+    cancelEditProduct();
+    setTimeout(() => {
+      nameInputRef.current?.focus();
+    }, 100);
+  };
+
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
       <Card className="xl:col-span-4">
         <SectionTitle
-          title="إضافة منتج للمخزن"
-          subtitle="يمكن كتابة أو مسح الباركود بالقارئ مباشرة"
-          icon={Plus}
+          title={editingProductId ? "تعديل المنتج" : "إضافة منتج للمخزن"}
+          subtitle={
+            editingProductId
+              ? "يمكن تعديل السعر أو الكمية أو أي بيانات خاصة بالمنتج"
+              : "يمكن كتابة أو مسح الباركود بالقارئ مباشرة"
+          }
+          icon={editingProductId ? Pencil : Plus}
         />
+
+        {editingProductId ? (
+          <div className="mb-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+            أنت الآن في وضع تعديل المنتج
+          </div>
+        ) : null}
 
         <div className="space-y-4">
           <input
@@ -267,25 +302,38 @@ export default function Products() {
             className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-slate-400"
           />
 
-          <button
-            onClick={handleSaveProduct}
-            disabled={savingProduct}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:bg-slate-400"
-          >
-            {savingProduct ? (
-              <RefreshCw className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            حفظ المنتج
-          </button>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <button
+              onClick={handleSaveProduct}
+              disabled={savingProduct}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:bg-slate-400"
+            >
+              {savingProduct ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              {editingProductId ? "حفظ التعديلات" : "حفظ المنتج"}
+            </button>
+
+            {editingProductId ? (
+              <button
+                onClick={handleCancelEdit}
+                type="button"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-100"
+              >
+                <X className="h-4 w-4" />
+                إلغاء التعديل
+              </button>
+            ) : null}
+          </div>
         </div>
       </Card>
 
       <Card className="xl:col-span-8">
         <SectionTitle
           title="المخزن"
-          subtitle="اضغط على المنتج لعرض التفاصيل"
+          subtitle="اضغط على المنتج لعرض التفاصيل أو تعديله"
           icon={Package}
           action={
             <div className="relative w-full max-w-sm">
@@ -411,7 +459,15 @@ export default function Products() {
                       </p>
                     </div>
 
-                    <div className="mt-4 flex justify-end">
+                    <div className="mt-4 flex flex-wrap justify-end gap-3">
+                      <button
+                        onClick={() => handleStartEdit(item)}
+                        className="inline-flex items-center gap-2 rounded-2xl bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700 transition hover:bg-blue-100"
+                      >
+                        <Pencil className="h-4 w-4" />
+                        تعديل المنتج
+                      </button>
+
                       <button
                         onClick={() => deleteProduct(item.id)}
                         className="inline-flex items-center gap-2 rounded-2xl bg-red-50 px-4 py-2 text-sm font-bold text-red-700 transition hover:bg-red-100"
