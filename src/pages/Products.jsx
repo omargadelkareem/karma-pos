@@ -10,11 +10,36 @@ import {
   ScanBarcode,
   Pencil,
   X,
+  Layers,
+  AlertTriangle,
+  Ban,
+  CalendarDays,
 } from "lucide-react";
 import { PosContext } from "../context/PosContext";
 import { currency } from "../utils/format";
 import Card from "../components/Card";
 import SectionTitle from "../components/SectionTitle";
+
+function daysBetween(fromDate, toDate) {
+  const ms = toDate.getTime() - fromDate.getTime();
+  return Math.floor(ms / (1000 * 60 * 60 * 24));
+}
+
+function expiryBadge(expiryDateStr) {
+  if (!expiryDateStr) return { label: "—", type: "none" };
+
+  const exp = new Date(`${expiryDateStr}T12:00:00`);
+  if (Number.isNaN(exp.getTime())) return { label: "—", type: "none" };
+
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+
+  const diffDays = daysBetween(today, exp);
+
+  if (diffDays < 0) return { label: "منتهي", type: "expired" };
+  if (diffDays <= 30) return { label: `قارب الانتهاء (${diffDays} يوم)`, type: "near" };
+  return { label: `صالح (${diffDays} يوم)`, type: "ok" };
+}
 
 export default function Products() {
   const {
@@ -31,32 +56,32 @@ export default function Products() {
   } = useContext(PosContext);
 
   const [expandedId, setExpandedId] = useState(null);
-  const [query, setQuery] = useState("");
-  const [barcodeHint, setBarcodeHint] = useState("");
 
+  // بحث + فلاتر
+  const [query, setQuery] = useState("");
+  const [stockFilter, setStockFilter] = useState("all"); // all | low | out
+  const [categoryFilter, setCategoryFilter] = useState("all");
+
+  // باركود
+  const [barcodeHint, setBarcodeHint] = useState("");
   const nameInputRef = useRef(null);
   const barcodeInputRef = useRef(null);
   const categoryInputRef = useRef(null);
 
   const itemsPerPackage = Number(productForm.itemsPerPackage || 0);
   const purchasePackagePrice = Number(productForm.purchasePackagePrice || 0);
-  const purchaseItemPrice =
-    itemsPerPackage > 0 ? purchasePackagePrice / itemsPerPackage : 0;
+  const purchaseItemPrice = itemsPerPackage > 0 ? purchasePackagePrice / itemsPerPackage : 0;
 
   useEffect(() => {
     nameInputRef.current?.focus();
   }, []);
 
   useEffect(() => {
-    if (editingProductId) {
-      nameInputRef.current?.focus();
-    }
+    if (editingProductId) nameInputRef.current?.focus();
   }, [editingProductId]);
 
-  const normalizedBarcode = useMemo(
-    () => String(productForm.barcode || "").trim(),
-    [productForm.barcode]
-  );
+  // تحقق باركود مكرر
+  const normalizedBarcode = useMemo(() => String(productForm.barcode || "").trim(), [productForm.barcode]);
 
   const existingBarcodeProduct = useMemo(() => {
     if (!normalizedBarcode) return null;
@@ -76,38 +101,76 @@ export default function Products() {
       setBarcodeHint("");
       return;
     }
-
     if (existingBarcodeProduct) {
       setBarcodeHint(`هذا الباركود مسجل بالفعل للمنتج: ${existingBarcodeProduct.name}`);
       return;
     }
-
     setBarcodeHint("تم التقاط الباركود");
   }, [normalizedBarcode, existingBarcodeProduct]);
 
+  // قائمة الأقسام
+  const categories = useMemo(() => {
+    const setCat = new Set();
+    products.forEach((p) => {
+      const c = String(p.category || "").trim();
+      if (c) setCat.add(c);
+    });
+    return Array.from(setCat).sort((a, b) => a.localeCompare(b, "ar"));
+  }, [products]);
+
+  // إحصائيات المخزن
+  const totalProductsCount = products.length;
+
+  const inventoryValue = useMemo(() => {
+    return products.reduce((sum, p) => sum + Number(p.stockValue || 0), 0);
+  }, [products]);
+
+  const categoriesCount = categories.length;
+
+  const lowStockCount = useMemo(() => {
+    return products.filter((p) => p.isLowStock && Number(p.totalItems || 0) > 0).length;
+  }, [products]);
+
+  const outOfStockCount = useMemo(() => {
+    return products.filter((p) => Number(p.totalItems || 0) <= 0).length;
+  }, [products]);
+
+  // فلترة المنتجات (بحث + حالة المخزون + قسم)
   const filteredProducts = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
-    if (!q) return products;
 
     return products.filter((item) => {
-      const text = `${item.name || ""} ${item.category || ""} ${item.barcode || ""}`.toLowerCase();
-      return text.includes(q);
-    });
-  }, [products, query]);
+      const matchesQuery = q
+        ? `${item.name || ""} ${item.category || ""} ${item.barcode || ""}`.toLowerCase().includes(q)
+        : true;
 
-  const toggleExpand = (id) => {
-    setExpandedId((prev) => (prev === id ? null : id));
-  };
+      const matchesCategory =
+        categoryFilter === "all" ? true : String(item.category || "").trim() === categoryFilter;
+
+      const totalItems = Number(item.totalItems || 0);
+
+      const matchesStock =
+        stockFilter === "all"
+          ? true
+          : stockFilter === "out"
+          ? totalItems <= 0
+          : stockFilter === "low"
+          ? item.isLowStock && totalItems > 0
+          : true;
+
+      return matchesQuery && matchesCategory && matchesStock;
+    });
+  }, [products, query, categoryFilter, stockFilter]);
+
+  const toggleExpand = (id) => setExpandedId((prev) => (prev === id ? null : id));
 
   const handleBarcodeKeyDown = (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-
       if (existingBarcodeProduct) {
         window.alert(`هذا الباركود مستخدم بالفعل للمنتج: ${existingBarcodeProduct.name}`);
         return;
       }
-
       categoryInputRef.current?.focus();
     }
   };
@@ -118,12 +181,8 @@ export default function Products() {
       barcodeInputRef.current?.focus();
       return;
     }
-
     await saveProduct();
-
-    setTimeout(() => {
-      nameInputRef.current?.focus();
-    }, 100);
+    setTimeout(() => nameInputRef.current?.focus(), 100);
   };
 
   const handleStartEdit = (product) => {
@@ -134,13 +193,18 @@ export default function Products() {
 
   const handleCancelEdit = () => {
     cancelEditProduct();
-    setTimeout(() => {
-      nameInputRef.current?.focus();
-    }, 100);
+    setTimeout(() => nameInputRef.current?.focus(), 100);
+  };
+
+  const clearFilters = () => {
+    setQuery("");
+    setStockFilter("all");
+    setCategoryFilter("all");
   };
 
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
+      {/* يسار: إضافة/تعديل */}
       <Card className="xl:col-span-4">
         <SectionTitle
           title={editingProductId ? "تعديل المنتج" : "إضافة منتج للمخزن"}
@@ -200,9 +264,7 @@ export default function Products() {
             {barcodeHint ? (
               <div
                 className={`rounded-2xl px-4 py-3 text-sm font-medium ${
-                  existingBarcodeProduct
-                    ? "bg-red-50 text-red-700"
-                    : "bg-emerald-50 text-emerald-700"
+                  existingBarcodeProduct ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"
                 }`}
               >
                 {barcodeHint}
@@ -222,6 +284,25 @@ export default function Products() {
             className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-slate-400"
           />
 
+          {/* ✅ تاريخ انتهاء الصلاحية */}
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-700">
+              <CalendarDays className="h-4 w-4 text-slate-500" />
+              تاريخ انتهاء الصلاحية (اختياري)
+            </div>
+
+            <input
+              type="date"
+              value={productForm.expiryDate || ""}
+              onChange={(e) => setProductForm((s) => ({ ...s, expiryDate: e.target.value }))}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-slate-400"
+            />
+
+            <div className="mt-2 text-xs text-slate-500">
+              لو المنتج ملوش صلاحية (زي أدوات)، سيبه فاضي.
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <input
               value={productForm.packageName}
@@ -229,7 +310,6 @@ export default function Products() {
               placeholder="اسم العبوة"
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-slate-400"
             />
-
             <input
               type="number"
               value={productForm.itemsPerPackage}
@@ -243,13 +323,10 @@ export default function Products() {
             <input
               type="number"
               value={productForm.purchasePackagePrice}
-              onChange={(e) =>
-                setProductForm((s) => ({ ...s, purchasePackagePrice: e.target.value }))
-              }
+              onChange={(e) => setProductForm((s) => ({ ...s, purchasePackagePrice: e.target.value }))}
               placeholder="سعر شراء العبوة"
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-slate-400"
             />
-
             <input
               value={purchaseItemPrice ? purchaseItemPrice.toFixed(2) : ""}
               readOnly
@@ -266,7 +343,6 @@ export default function Products() {
               placeholder="سعر بيع القطعة"
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-slate-400"
             />
-
             <input
               type="number"
               value={productForm.salePackagePrice}
@@ -284,7 +360,6 @@ export default function Products() {
               placeholder="عدد العبوات الموجودة"
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-slate-400"
             />
-
             <input
               type="number"
               value={productForm.itemQty}
@@ -308,11 +383,7 @@ export default function Products() {
               disabled={savingProduct}
               className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:bg-slate-400"
             >
-              {savingProduct ? (
-                <RefreshCw className="h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4" />
-              )}
+              {savingProduct ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               {editingProductId ? "حفظ التعديلات" : "حفظ المنتج"}
             </button>
 
@@ -330,34 +401,125 @@ export default function Products() {
         </div>
       </Card>
 
+      {/* يمين: المخزن + الإحصائيات + الفلاتر + القائمة */}
       <Card className="xl:col-span-8">
-        <SectionTitle
-          title="المخزن"
-          subtitle="اضغط على المنتج لعرض التفاصيل أو تعديله"
-          icon={Package}
-          action={
-            <div className="relative w-full max-w-sm">
+        <SectionTitle title="المخزن" subtitle="إحصائيات + فلترة + بحث + تفاصيل المنتجات" icon={Package} />
+
+        {/* إحصائيات */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <div className="flex items-center gap-2 text-slate-500">
+              <Package className="h-4 w-4" />
+              <span className="text-sm">عدد المنتجات</span>
+            </div>
+            <p className="mt-2 text-2xl font-black text-slate-900">{totalProductsCount}</p>
+          </div>
+
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <div className="flex items-center gap-2 text-slate-500">
+              <Layers className="h-4 w-4" />
+              <span className="text-sm">عدد الفئات</span>
+            </div>
+            <p className="mt-2 text-2xl font-black text-slate-900">{categoriesCount}</p>
+          </div>
+
+          <div className="rounded-2xl bg-emerald-50 p-4">
+            <div className="flex items-center gap-2 text-emerald-700">
+              <Package className="h-4 w-4" />
+              <span className="text-sm">قيمة المخزون</span>
+            </div>
+            <p className="mt-2 text-xl font-black text-emerald-700">
+              {currency(inventoryValue, settings.currencyCode)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-amber-50 p-4">
+            <div className="flex items-center gap-2 text-amber-700">
+              <AlertTriangle className="h-4 w-4" />
+              <span className="text-sm">مخزون منخفض</span>
+            </div>
+            <p className="mt-2 text-2xl font-black text-amber-700">{lowStockCount}</p>
+          </div>
+
+          <div className="rounded-2xl bg-red-50 p-4">
+            <div className="flex items-center gap-2 text-red-700">
+              <Ban className="h-4 w-4" />
+              <span className="text-sm">نفذ</span>
+            </div>
+            <p className="mt-2 text-2xl font-black text-red-700">{outOfStockCount}</p>
+          </div>
+        </div>
+
+        {/* فلاتر + بحث */}
+        <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-12">
+          <div className="xl:col-span-5">
+            <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="ابحث باسم المنتج أو الباركود"
+                placeholder="بحث (اسم/باركود/قسم)"
                 autoComplete="off"
                 className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm outline-none focus:border-slate-400"
               />
             </div>
-          }
-        />
+          </div>
 
-        <div className="space-y-3">
+          <div className="xl:col-span-3">
+            <select
+              value={stockFilter}
+              onChange={(e) => setStockFilter(e.target.value)}
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+            >
+              <option value="all">كل المخزون</option>
+              <option value="low">مخزون منخفض</option>
+              <option value="out">نفذ</option>
+            </select>
+          </div>
+
+          <div className="xl:col-span-3">
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+            >
+              <option value="all">كل الأقسام</option>
+              {categories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="xl:col-span-1">
+            <button
+              onClick={clearFilters}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-100"
+              type="button"
+              title="مسح الفلاتر"
+            >
+              مسح
+            </button>
+          </div>
+        </div>
+
+        {/* قائمة المنتجات */}
+        <div className="mt-5 space-y-3">
           {filteredProducts.map((item) => {
             const isExpanded = expandedId === item.id;
+            const totalItems = Number(item.totalItems || 0);
+            const isOut = totalItems <= 0;
+
+            const exp = expiryBadge(item.expiryDate);
 
             return (
               <div
                 key={item.id}
                 className={`overflow-hidden rounded-2xl border transition ${
-                  item.isLowStock
+                  isOut
+                    ? "border-red-300 bg-red-50"
+                    : item.isLowStock
                     ? "border-amber-300 bg-amber-50"
                     : "border-slate-200 bg-white"
                 }`}
@@ -369,19 +531,36 @@ export default function Products() {
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-base font-black text-slate-900">
-                        {item.name}
-                      </h3>
+                      <h3 className="text-base font-black text-slate-900">{item.name}</h3>
 
-                      {item.isLowStock ? (
+                      {isOut ? (
+                        <span className="rounded-xl bg-red-100 px-2.5 py-1 text-xs font-bold text-red-800">
+                          نفذ
+                        </span>
+                      ) : item.isLowStock ? (
                         <span className="rounded-xl bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800">
-                          ناقص
+                          منخفض
                         </span>
                       ) : (
                         <span className="rounded-xl bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800">
                           جيد
                         </span>
                       )}
+
+                      {/* ✅ بادج الصلاحية */}
+                      {exp.type !== "none" ? (
+                        <span
+                          className={`rounded-xl px-2.5 py-1 text-xs font-bold ${
+                            exp.type === "expired"
+                              ? "bg-red-100 text-red-800"
+                              : exp.type === "near"
+                              ? "bg-amber-100 text-amber-800"
+                              : "bg-emerald-100 text-emerald-800"
+                          }`}
+                        >
+                          {exp.label}
+                        </span>
+                      ) : null}
                     </div>
 
                     <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-slate-600 md:grid-cols-4">
@@ -424,8 +603,7 @@ export default function Products() {
                         اسم العبوة: <span className="font-bold">{item.packageName}</span>
                       </p>
                       <p>
-                        عدد القطع داخل العبوة:{" "}
-                        <span className="font-bold">{item.itemsPerPackage}</span>
+                        عدد القطع داخل العبوة: <span className="font-bold">{item.itemsPerPackage}</span>
                       </p>
                       <p>
                         حد النقص:{" "}
@@ -456,6 +634,12 @@ export default function Products() {
                         <span className="font-bold text-emerald-700">
                           {currency(item.salePackagePrice, settings.currencyCode)}
                         </span>
+                      </p>
+
+                      {/* ✅ عرض تاريخ الصلاحية */}
+                      <p className="md:col-span-2">
+                        تاريخ الانتهاء:{" "}
+                        <span className="font-bold">{item.expiryDate ? item.expiryDate : "—"}</span>
                       </p>
                     </div>
 
