@@ -42,6 +42,7 @@ import Policies from "./pages/Policies";
 import Documents from "./pages/Documents";
 import { DocumentsProvider } from "./context/DocumentsContext";
 import ActivityLog from "./pages/ActivityLog";
+import DeliveryOrders from "./pages/DeliveryOrders";
 
 function getAllowedPages(role) {
   switch (role) {
@@ -160,7 +161,7 @@ export default function App() {
           {activePage === "quality" && <QualityCompliance />}
           {activePage === "policies" && <Policies />}
           {activePage === "docs" && <Documents />}
-          {activePage === "roles" && <div className="p-6">صلاحيات المستخدمين - قريباً</div>}
+       {activePage ==="delivery" && <DeliveryOrders />}
           {activePage === "activityLog" && <div className="p-6">سجل النشاط - قريباً</div>}
         </main>
       </div>

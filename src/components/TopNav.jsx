@@ -67,6 +67,7 @@ const NAV_GROUPS = [
       // لاحقاً:
       { key: "offers", label: "العروض ", icon: Receipt, },
       { key: "creditSales", label: "البيع الآجل ", icon: Receipt },
+        { key: "delivery", label: " توصيل للمنازل ", icon: Receipt },
     ],
   },
 

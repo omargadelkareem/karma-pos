@@ -140,6 +140,26 @@ const initialTaxSettings = {
   includeReturnsInVAT: true,
 };
 
+
+// Delivery Orders
+const initialDeliveryOrderForm = {
+  customerName: "",
+  phone: "",
+  address: "",
+  area: "",
+  notes: "",
+  deliveryFee: "",
+  itemsTotal: "",
+  grandTotal: "",
+  paymentMethod: "cash", // cash | card | wallet | transfer
+  status: "pending", // pending | preparing | out_for_delivery | delivered | canceled
+  driverId: "",
+  driverName: "",
+  expectedAt: "", // YYYY-MM-DDTHH:mm
+};
+
+
+
 /* ==============================
    Helpers
 ============================== */
@@ -331,6 +351,10 @@ export function PosProvider({ children }) {
   const [warehouses, setWarehouses] = useState([]);
   const [activeWarehouseId, setActiveWarehouseId] = useState("");
 
+  const [deliveryOrders, setDeliveryOrders] = useState([]);
+const [deliveryOrderForm, setDeliveryOrderForm] = useState(initialDeliveryOrderForm);
+const [savingDeliveryOrder, setSavingDeliveryOrder] = useState(false);
+
   /* =============================
      Inventory Map
      inventory/{warehouseId}/{productId} = { baseQty, packageQty }
@@ -494,6 +518,14 @@ export function PosProvider({ children }) {
       const data = snap.val();
       if (data) setSettings((p) => ({ ...p, ...data }));
     });
+
+    const unsubDeliveryOrders = onValue(ref(db, "deliveryOrders"), (snap) => {
+  const data = snap.val() || {};
+  const parsed = Object.entries(data)
+    .map(([id, v]) => ({ id, ...v }))
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  setDeliveryOrders(parsed);
+});
 
     const unsubTaxes = onValue(ref(db, "settings/taxes"), (snap) => {
       const data = snap.val();
@@ -707,6 +739,7 @@ export function PosProvider({ children }) {
       unsubSuppliers();
       unsubSupplierPayments();
       unsubWalletTransfers();
+      unsubDeliveryOrders();
       unsubExpenses();
       unsubCharging();
       unsubTreasury();
@@ -1192,6 +1225,124 @@ export function PosProvider({ children }) {
 
     window.alert("تم إغلاق الوردية ✅");
   };
+
+  const saveDeliveryOrder = async () => {
+  if (!String(deliveryOrderForm.customerName || "").trim()) return window.alert("أدخل اسم العميل");
+  if (!String(deliveryOrderForm.phone || "").trim()) return window.alert("أدخل رقم الهاتف");
+  if (!String(deliveryOrderForm.address || "").trim()) return window.alert("أدخل العنوان");
+
+  setSavingDeliveryOrder(true);
+  try {
+    const createdAt = Date.now();
+    const newRef = push(ref(db, "deliveryOrders"));
+
+    const itemsTotal = toNumber(deliveryOrderForm.itemsTotal);
+    const deliveryFee = toNumber(deliveryOrderForm.deliveryFee);
+    const grandTotal = deliveryOrderForm.grandTotal !== ""
+      ? toNumber(deliveryOrderForm.grandTotal)
+      : Math.max(0, itemsTotal + deliveryFee);
+
+    const payload = {
+      customerName: String(deliveryOrderForm.customerName || "").trim(),
+      phone: String(deliveryOrderForm.phone || "").trim(),
+      address: String(deliveryOrderForm.address || "").trim(),
+      area: String(deliveryOrderForm.area || "").trim(),
+      notes: String(deliveryOrderForm.notes || "").trim(),
+
+      itemsTotal,
+      deliveryFee,
+      grandTotal,
+
+      paymentMethod: deliveryOrderForm.paymentMethod || "cash",
+      status: deliveryOrderForm.status || "pending",
+
+      driverId: String(deliveryOrderForm.driverId || "").trim(),
+      driverName: String(deliveryOrderForm.driverName || "").trim(),
+
+      expectedAt: deliveryOrderForm.expectedAt || "",
+
+      createdAt,
+      createdBy: user?.name || "",
+      cashierId: currentCashierId,
+    };
+
+    await set(newRef, payload);
+
+    // ✅ Activity log
+    await logActivity?.({
+      type: "delivery_order_create",
+      title: "إنشاء طلب دليفري",
+      entityType: "delivery_order",
+      entityId: newRef.key,
+      entityLabel: payload.customerName,
+      action: "create",
+      meta: { status: payload.status, phone: payload.phone, grandTotal: payload.grandTotal },
+    });
+
+    setDeliveryOrderForm(initialDeliveryOrderForm);
+    window.alert("تم حفظ طلب الدليفري ✅");
+  } catch (e) {
+    window.alert(e?.message || "خطأ أثناء حفظ طلب الدليفري");
+  } finally {
+    setSavingDeliveryOrder(false);
+  }
+};
+
+const updateDeliveryOrderStatus = async (orderId, status) => {
+  if (!orderId) return;
+  await update(ref(db, `deliveryOrders/${orderId}`), {
+    status,
+    updatedAt: Date.now(),
+    updatedBy: user?.name || "",
+  });
+
+  await logActivity?.({
+    type: "delivery_order_status_update",
+    title: "تغيير حالة طلب دليفري",
+    entityType: "delivery_order",
+    entityId: orderId,
+    entityLabel: "",
+    action: "update",
+    meta: { status },
+  });
+};
+
+const assignDeliveryDriver = async (orderId, driverId, driverName) => {
+  if (!orderId) return;
+  await update(ref(db, `deliveryOrders/${orderId}`), {
+    driverId: String(driverId || "").trim(),
+    driverName: String(driverName || "").trim(),
+    updatedAt: Date.now(),
+    updatedBy: user?.name || "",
+  });
+
+  await logActivity?.({
+    type: "delivery_order_assign_driver",
+    title: "تعيين مندوب دليفري",
+    entityType: "delivery_order",
+    entityId: orderId,
+    entityLabel: "",
+    action: "update",
+    meta: { driverId, driverName },
+  });
+};
+
+const exportDeliveryOrdersCsv = (rows = deliveryOrders) => {
+  const headers = ["التاريخ", "العميل", "الهاتف", "العنوان", "المنطقة", "الإجمالي", "رسوم التوصيل", "طريقة الدفع", "الحالة", "المندوب"];
+  const data = (rows || []).map((o) => [
+    o.createdAt ? new Date(o.createdAt).toLocaleString("ar-EG") : "",
+    o.customerName || "",
+    o.phone || "",
+    o.address || "",
+    o.area || "",
+    toNumber(o.grandTotal),
+    toNumber(o.deliveryFee),
+    o.paymentMethod || "",
+    o.status || "",
+    o.driverName || "",
+  ]);
+  downloadCsv("karma-delivery-orders.csv", headers, data);
+};
 
   /* =============================
      Cart Actions
@@ -2867,6 +3018,15 @@ export function PosProvider({ children }) {
     savingCategory,
     saveCategory,
     deleteCategory,
+
+    deliveryOrders,
+deliveryOrderForm,
+setDeliveryOrderForm,
+savingDeliveryOrder,
+saveDeliveryOrder,
+updateDeliveryOrderStatus,
+assignDeliveryDriver,
+exportDeliveryOrdersCsv,
 
     units,
     unitForm,
